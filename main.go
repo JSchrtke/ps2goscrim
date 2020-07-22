@@ -3,42 +3,72 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
+	"time"
 )
 
-func main() {
-	client := NewClient()
-	err := client.Connect("wss://push.planetside2.com/streaming?environment=ps2&service-id=s:ps2goscrim")
-	if err != nil {
-		log.Printf("Error when connecting: %s", err)
-	}
+type MockRules struct {
+}
 
-	id := "8267848801130180513"
-	s := fmt.Sprintf(
-		"{ \"service\":\"event\","+
-			"\"action\":\"subscribe\","+
-			"\"characters\":[\"%s\"],"+
-			"\"eventNames\":[\"Death\"] }",
-		id,
-	)
-	err = client.Subscribe(s)
-	if err != nil {
-		log.Printf("Error when subscribing to: %s", s)
-	}
+func (r MockRules) TeamCount() int {
+	return 2
+}
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-	for {
-		select {
-		case <-interrupt:
-			err = client.Close()
-			if err != nil {
-				panic(err)
-			}
-			return
-		case res := <-client.Response:
-			log.Printf("Got response: %s", res)
+func (r MockRules) PlayerCount() int {
+	return 12
+}
+
+type MockUi struct {
+}
+
+func (u MockUi) GetTeams() []Team {
+	teams := make([]Team, 2)
+	for i := 0; i < len(teams); i++ {
+		teams[i] = Team{
+			id:   i,
+			Name: fmt.Sprintf("Template team %d", i),
 		}
+	}
+	return teams
+}
+
+func (u MockUi) GetPlayers() []Player {
+	players := make([]Player, 12)
+	for i := 0; i < len(players); i++ {
+		players[i] = Player{
+			id:   i,
+			Name: fmt.Sprintf("player%d", i),
+		}
+	}
+	return players
+}
+
+func main() {
+	rules := MockRules{}
+	ui := MockUi{}
+
+	err, match := NewMatch(rules, ui)
+	if err != nil {
+		log.Printf("Error when creating match: %s", err)
+	}
+
+	err = match.Start()
+	if err != nil {
+		log.Printf("Error when starting match: %s", err)
+	}
+
+	for {
+		log.Println("Update:")
+		info := match.CurrentState()
+		for _, team := range info.Teams {
+			log.Printf("%s:\n\tscore: %d\n\n", team.Name, team.Score)
+		}
+		for _, player := range info.Players {
+			log.Printf(
+				"%s:\n\tscore: %d\n\tkills: %d\n\tdeaths: %d\n\n",
+				player.Name, player.Score, player.Kills, player.Deaths,
+			)
+		}
+
+		time.Sleep(1 * time.Second)
 	}
 }
